@@ -1,0 +1,95 @@
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.sql.*;
+import java.util.Properties;
+
+public class SnowflakeToPostgresMigrator {
+    public static void main(String[] args) {
+        try (InputStream input = new FileInputStream("resources/config.properties")) {
+            Properties config = new Properties();
+            config.load(input);
+
+            // Snowflake properties
+            Properties sfProps = new Properties();
+            sfProps.put("user", config.getProperty("sf.user"));
+            sfProps.put("authenticator", config.getProperty("sf.authenticator"));
+            sfProps.put("db", config.getProperty("sf.db"));
+            sfProps.put("schema", config.getProperty("sf.schema"));
+            sfProps.put("warehouse", config.getProperty("sf.warehouse"));
+            sfProps.put("role", config.getProperty("sf.role"));
+            sfProps.put("client_session_keep_alive", "true"); // Optional
+            String sfUrl = config.getProperty("sf.url");
+            String sfView = config.getProperty("sf.view");
+
+            // PostgreSQL
+            String pgUrl = config.getProperty("pg.url");
+            String pgUser = config.getProperty("pg.user");
+            String pgPassword = config.getProperty("pg.password");
+            String pgTable = config.getProperty("pg.table");
+
+            // Load drivers
+            Class.forName("net.snowflake.client.jdbc.SnowflakeDriver");
+            Class.forName("org.postgresql.Driver");
+
+            try (
+                Connection sfConn = DriverManager.getConnection(sfUrl, sfProps);
+                Connection pgConn = DriverManager.getConnection(pgUrl, pgUser, pgPassword);
+                Statement sfStmt = sfConn.createStatement();
+                ResultSet rs = sfStmt.executeQuery("SELECT * FROM " + sfView)
+            ) {
+                ResultSetMetaData meta = rs.getMetaData();
+                int colCount = meta.getColumnCount();
+
+                // Create table in PostgreSQL
+                StringBuilder createSQL = new StringBuilder("CREATE TABLE IF NOT EXISTS ");
+                createSQL.append(pgTable).append(" (");
+
+                for (int i = 1; i <= colCount; i++) {
+                    String colName = meta.getColumnName(i);
+                    String pgType = mapSnowflakeToPostgresType(meta.getColumnTypeName(i));
+                    createSQL.append(colName).append(" ").append(pgType);
+                    if (i < colCount) createSQL.append(", ");
+                }
+                createSQL.append(");");
+
+                Statement pgStmt = pgConn.createStatement();
+                pgStmt.executeUpdate(createSQL.toString());
+
+                // Insert data
+                StringBuilder insertSQL = new StringBuilder("INSERT INTO ").append(pgTable).append(" VALUES (");
+                for (int i = 0; i < colCount; i++) {
+                    insertSQL.append("?");
+                    if (i < colCount - 1) insertSQL.append(", ");
+                }
+                insertSQL.append(");");
+
+                PreparedStatement insertStmt = pgConn.prepareStatement(insertSQL.toString());
+                while (rs.next()) {
+                    for (int i = 1; i <= colCount; i++) {
+                        insertStmt.setObject(i, rs.getObject(i));
+                    }
+                    insertStmt.executeUpdate();
+                }
+
+                System.out.println("Data migrated from Snowflake view [" + sfView + "] to PostgreSQL table [" + pgTable + "]");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static String mapSnowflakeToPostgresType(String sfType) {
+        switch (sfType.toUpperCase()) {
+            case "NUMBER": return "NUMERIC";
+            case "FLOAT": case "DOUBLE": case "FLOAT4": case "FLOAT8": return "DOUBLE PRECISION";
+            case "VARCHAR": case "TEXT": case "STRING": return "TEXT";
+            case "BOOLEAN": return "BOOLEAN";
+            case "DATE": return "DATE";
+            case "TIME": return "TIME";
+            case "TIMESTAMP": case "TIMESTAMP_LTZ": case "TIMESTAMP_NTZ": case "TIMESTAMP_TZ": return "TIMESTAMP";
+            case "BINARY": return "BYTEA";
+            default: return "TEXT";
+        }
+    }
+}
