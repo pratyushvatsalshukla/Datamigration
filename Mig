@@ -93,3 +93,104 @@ public class SnowflakeToPostgresMigrator {
         }
     }
 }
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.util.*;
+
+public class SheetMerger {
+    public static void main(String[] args) throws IOException {
+        String sheet1Path = "Sheet1.xlsx";
+        String sheet2Path = "Sheet2.xlsx";
+        String outputPath = "MergedOutput.xlsx";
+
+        Workbook wb1 = new XSSFWorkbook(new FileInputStream(sheet1Path));
+        Workbook wb2 = new XSSFWorkbook(new FileInputStream(sheet2Path));
+        Workbook outputWb = new XSSFWorkbook();
+
+        Sheet sheet1 = wb1.getSheetAt(0);
+        Sheet sheet2 = wb2.getSheetAt(0);
+        Sheet outputSheet = outputWb.createSheet("Merged");
+
+        int outputRowNum = 0;
+
+        // First, find how many columns each sheet has
+        int sheet1Cols = sheet1.getRow(0).getLastCellNum();
+        int sheet2Cols = sheet2.getRow(0).getLastCellNum();
+
+        // Loop over every row in Sheet2
+        for (Row row2 : sheet2) {
+            if (row2.getRowNum() == 0) continue; // skip headers if needed
+
+            String identifier = getCellString(row2.getCell(0)).toLowerCase().trim(); // Column A
+            String emailFrag = getCellString(row2.getCell(4)).toLowerCase().trim();  // Column E
+
+            Row matchedRow1 = null;
+
+            // Search Sheet1 for a match
+            for (Row row1 : sheet1) {
+                if (row1.getRowNum() == 0) continue; // skip headers
+
+                String colB = getCellString(row1.getCell(1)).toLowerCase(); // Column B
+                String colC = getCellString(row1.getCell(2)).toLowerCase(); // Column C
+
+                boolean match =
+                        identifier.equals(colB) ||
+                        colC.contains(identifier) ||
+                        colC.contains(emailFrag);
+
+                if (match) {
+                    matchedRow1 = row1;
+                    break;
+                }
+            }
+
+            // Write to output
+            Row outputRow = outputSheet.createRow(outputRowNum++);
+            int colNum = 0;
+
+            // If matched, write Sheet1 row + Sheet2 row
+            if (matchedRow1 != null) {
+                for (Cell cell : matchedRow1) {
+                    outputRow.createCell(colNum++).setCellValue(getCellString(cell));
+                }
+            } else {
+                // Write NULLs for Sheet1 columns
+                for (int i = 0; i < sheet1Cols; i++) {
+                    outputRow.createCell(colNum++).setCellValue("NULL");
+                }
+            }
+
+            // Write Sheet2 row
+            for (Cell cell : row2) {
+                outputRow.createCell(colNum++).setCellValue(getCellString(cell));
+            }
+        }
+
+        // Save output
+        FileOutputStream fos = new FileOutputStream(outputPath);
+        outputWb.write(fos);
+        fos.close();
+
+        wb1.close();
+        wb2.close();
+        outputWb.close();
+
+        System.out.println("Merged output written to " + outputPath);
+    }
+
+    private static String getCellString(Cell cell) {
+        if (cell == null) return "";
+        return switch (cell.getCellType()) {
+            case STRING -> cell.getStringCellValue();
+            case NUMERIC -> String.valueOf(cell.getNumericCellValue());
+            case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
+            case FORMULA -> cell.getCellFormula();
+            default -> cell.toString();
+        };
+    }
+}
+
+
