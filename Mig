@@ -268,3 +268,106 @@ public class FinalSheetMerger {
         return (cell == null) ? "" : cell.toString();
     }
 }
+
+
+
+
+
+
+
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.util.*;
+
+public class OptimizedMerger {
+    public static void main(String[] args) throws Exception {
+        String wfmiFile = "WFMI.xlsx";
+        String sheet2File = "Sheet2.xlsx";
+        String outputFile = "MergedOutput.xlsx";
+
+        Workbook wfmiWb = new XSSFWorkbook(new FileInputStream(wfmiFile));
+        Workbook sheet2Wb = new XSSFWorkbook(new FileInputStream(sheet2File));
+        Workbook outputWb = new XSSFWorkbook();
+
+        Sheet wfmiSheet = wfmiWb.getSheetAt(0);
+        Sheet sheet2 = sheet2Wb.getSheetAt(0);
+        Sheet output = outputWb.createSheet("Merged");
+
+        int outputRowNum = 0;
+        int wfmiCols = wfmiSheet.getRow(0).getLastCellNum();
+
+        // Preload WFMI data into maps
+        Map<String, Row> racfMap = new HashMap<>();
+        Map<String, List<Row>> emailMap = new HashMap<>();
+
+        for (Row row : wfmiSheet) {
+            String racf = getCellValue(row.getCell(61)).toLowerCase().trim(); // Column BJ
+            String email = getCellValue(row.getCell(20)).toLowerCase().trim(); // Column U
+
+            if (!racf.isEmpty()) {
+                racfMap.put(racf, row);
+            }
+
+            if (!email.isEmpty()) {
+                emailMap.computeIfAbsent(email, k -> new ArrayList<>()).add(row);
+            }
+        }
+
+        // Process each row in Sheet2
+        for (Row row2 : sheet2) {
+            String identifier = getCellValue(row2.getCell(0)).toLowerCase().trim(); // Column A
+            String emailFrag = getCellValue(row2.getCell(4)).toLowerCase().trim(); // Column E
+
+            Row matchedRow = null;
+
+            // 1. Try RACF exact match
+            if (racfMap.containsKey(identifier)) {
+                matchedRow = racfMap.get(identifier);
+            } else {
+                // 2. Try contains in emailMap keys (email work contains identifier or emailFrag)
+                for (String emailKey : emailMap.keySet()) {
+                    if (emailKey.contains(identifier) || emailKey.contains(emailFrag)) {
+                        matchedRow = emailMap.get(emailKey).get(0);
+                        break;
+                    }
+                }
+            }
+
+            // Write merged output
+            Row outputRow = output.createRow(outputRowNum++);
+            int colNum = 0;
+
+            if (matchedRow != null) {
+                for (Cell cell : matchedRow) {
+                    outputRow.createCell(colNum++).setCellValue(getCellValue(cell));
+                }
+            } else {
+                for (int i = 0; i < wfmiCols; i++) {
+                    outputRow.createCell(colNum++).setCellValue("NULL");
+                }
+            }
+
+            for (Cell cell : row2) {
+                outputRow.createCell(colNum++).setCellValue(getCellValue(cell));
+            }
+        }
+
+        FileOutputStream fos = new FileOutputStream(outputFile);
+        outputWb.write(fos);
+        fos.close();
+
+        wfmiWb.close();
+        sheet2Wb.close();
+        outputWb.close();
+
+        System.out.println("Merged output saved as: " + outputFile);
+    }
+
+    private static String getCellValue(Cell cell) {
+        return cell == null ? "" : cell.toString();
+    }
+}
+
