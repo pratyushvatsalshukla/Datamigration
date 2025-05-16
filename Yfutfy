@@ -1,0 +1,101 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.util.*;
+
+public class OptimizedMerge {
+    public static void main(String[] args) throws Exception {
+        String sheet2Path = "Sheet2.xlsx";
+        String wfmiCsvPath = "WFMI.csv";
+        String outputPath = "MergedOutput.xlsx";
+
+        // Load WFMI CSV into a list of maps
+        List<Map<String, String>> wfmiData = new ArrayList<>();
+        Map<String, List<Map<String, String>>> racfMap = new HashMap<>();
+
+        try (BufferedReader br = new BufferedReader(new FileReader(wfmiCsvPath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] cols = line.split(",", -1);
+                Map<String, String> record = new HashMap<>();
+                for (int i = 0; i < cols.length; i++) {
+                    record.put("col" + i, cols[i]);
+                }
+
+                String racf = getSafe(cols, 61).toLowerCase().trim();
+                racfMap.computeIfAbsent(racf, k -> new ArrayList<>()).add(record);
+                wfmiData.add(record);
+            }
+        }
+
+        // Open Sheet2
+        Workbook sheet2Wb = new XSSFWorkbook(new FileInputStream(sheet2Path));
+        Sheet sheet2 = sheet2Wb.getSheetAt(0);
+
+        // Prepare output
+        Workbook outputWb = new XSSFWorkbook();
+        Sheet outputSheet = outputWb.createSheet("Merged");
+        int outputRowNum = 0;
+
+        for (Row row : sheet2) {
+            String identifier = getCellValue(row.getCell(0)).toLowerCase().trim(); // Column A
+            String emailFrag = getCellValue(row.getCell(4)).toLowerCase().trim();  // Column E
+
+            Map<String, String> matchedRecord = null;
+
+            // Try RACF exact match
+            if (racfMap.containsKey(identifier)) {
+                matchedRecord = racfMap.get(identifier).get(0);
+            } else {
+                // Try email contains check
+                for (Map<String, String> record : wfmiData) {
+                    String email = record.getOrDefault("col20", "").toLowerCase();
+                    if (email.contains(identifier) || email.contains(emailFrag)) {
+                        matchedRecord = record;
+                        break;
+                    }
+                }
+            }
+
+            // Write to output
+            Row outRow = outputSheet.createRow(outputRowNum++);
+            int col = 0;
+
+            // WFMI record (or NULLs)
+            if (matchedRecord != null) {
+                for (int i = 0; i < 100; i++) { // Adjust column limit if needed
+                    outRow.createCell(col++).setCellValue(
+                        matchedRecord.getOrDefault("col" + i, "NULL")
+                    );
+                }
+            } else {
+                for (int i = 0; i < 100; i++) {
+                    outRow.createCell(col++).setCellValue("NULL");
+                }
+            }
+
+            // Sheet2 row data
+            for (Cell cell : row) {
+                outRow.createCell(col++).setCellValue(getCellValue(cell));
+            }
+        }
+
+        // Write final output
+        try (FileOutputStream fos = new FileOutputStream(outputPath)) {
+            outputWb.write(fos);
+        }
+
+        sheet2Wb.close();
+        outputWb.close();
+        System.out.println("Merged file created successfully: " + outputPath);
+    }
+
+    private static String getCellValue(Cell cell) {
+        return cell == null ? "" : cell.toString();
+    }
+
+    private static String getSafe(String[] arr, int index) {
+        return index < arr.length ? arr[index] : "";
+    }
+}
