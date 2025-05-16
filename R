@@ -1,0 +1,84 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.util.*;
+
+public class MergeSheet2WithWfmiCsv {
+    public static void main(String[] args) throws Exception {
+        String sheet2File = "Sheet2.xlsx";
+        String wfmiCsvFile = "WFMI.csv";
+        String outputFile = "MergedOutput.xlsx";
+
+        Workbook sheet2Wb = new XSSFWorkbook(new FileInputStream(sheet2File));
+        Sheet sheet2 = sheet2Wb.getSheetAt(0);
+        Workbook outputWb = new XSSFWorkbook();
+        Sheet output = outputWb.createSheet("Merged");
+
+        // Load WFMI CSV into memory
+        List<String[]> wfmiRows = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(new FileReader(wfmiCsvFile))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                wfmiRows.add(line.split(",", -1)); // keep empty strings
+            }
+        }
+
+        int wfmiCols = wfmiRows.get(0).length;
+        int outputRowNum = 0;
+
+        for (Row sheet2Row : sheet2) {
+            String id = getCellValue(sheet2Row.getCell(0)).toLowerCase().trim(); // Column A
+            String emailFrag = getCellValue(sheet2Row.getCell(4)).toLowerCase().trim(); // Column E
+
+            String[] matchedWfmi = null;
+
+            for (String[] wfmi : wfmiRows) {
+                String racf = getSafe(wfmi, 61).toLowerCase().trim(); // Column BJ
+                String email = getSafe(wfmi, 20).toLowerCase().trim(); // Column U
+
+                if (racf.equals(id) || email.contains(id) || email.contains(emailFrag)) {
+                    matchedWfmi = wfmi;
+                    break;
+                }
+            }
+
+            Row outputRow = output.createRow(outputRowNum++);
+            int col = 0;
+
+            // Write WFMI data or NULLs
+            if (matchedWfmi != null) {
+                for (String val : matchedWfmi) {
+                    outputRow.createCell(col++).setCellValue(val);
+                }
+            } else {
+                for (int i = 0; i < wfmiCols; i++) {
+                    outputRow.createCell(col++).setCellValue("NULL");
+                }
+            }
+
+            // Write Sheet2 row data
+            for (Cell cell : sheet2Row) {
+                outputRow.createCell(col++).setCellValue(getCellValue(cell));
+            }
+        }
+
+        // Write output
+        try (FileOutputStream out = new FileOutputStream(outputFile)) {
+            outputWb.write(out);
+        }
+
+        outputWb.close();
+        sheet2Wb.close();
+
+        System.out.println("Merged file created: " + outputFile);
+    }
+
+    private static String getCellValue(Cell cell) {
+        return (cell == null) ? "" : cell.toString();
+    }
+
+    private static String getSafe(String[] arr, int index) {
+        return index < arr.length ? arr[index] : "";
+    }
+}
