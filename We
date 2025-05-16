@@ -1,0 +1,94 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.util.*;
+
+public class Sheet1Sheet2Merger {
+    public static void main(String[] args) throws Exception {
+        String sheet1File = "Sheet1.xlsx";
+        String sheet2File = "Sheet2.xlsx";
+        String outputFile = "MergedOutput.xlsx";
+
+        Workbook sheet1Wb = new XSSFWorkbook(new FileInputStream(sheet1File));
+        Workbook sheet2Wb = new XSSFWorkbook(new FileInputStream(sheet2File));
+        Workbook outputWb = new XSSFWorkbook();
+
+        Sheet sheet1 = sheet1Wb.getSheetAt(0);
+        Sheet sheet2 = sheet2Wb.getSheetAt(0);
+        Sheet output = outputWb.createSheet("Merged");
+
+        int outputRowNum = 0;
+        int sheet1Cols = sheet1.getRow(0).getLastCellNum();
+
+        // Preload Sheet1 data into maps
+        Map<String, Row> idMap = new HashMap<>();
+        Map<String, List<Row>> emailMap = new HashMap<>();
+
+        for (Row row : sheet1) {
+            String identifier = getCellValue(row.getCell(1)).toLowerCase().trim(); // Column B
+            String email = getCellValue(row.getCell(2)).toLowerCase().trim();      // Column C
+
+            if (!identifier.isEmpty()) {
+                idMap.put(identifier, row);
+            }
+
+            if (!email.isEmpty()) {
+                emailMap.computeIfAbsent(email, k -> new ArrayList<>()).add(row);
+            }
+        }
+
+        // Process each row in Sheet2
+        for (Row row2 : sheet2) {
+            String identifier = getCellValue(row2.getCell(0)).toLowerCase().trim(); // Column A
+            String emailFrag = getCellValue(row2.getCell(4)).toLowerCase().trim();  // Column E
+
+            Row matchedRow = null;
+
+            // 1. Try exact match on Column B
+            if (idMap.containsKey(identifier)) {
+                matchedRow = idMap.get(identifier);
+            } else {
+                // 2. Try contains match on Column C (identifier or email fragment)
+                for (String emailKey : emailMap.keySet()) {
+                    if (emailKey.contains(identifier) || emailKey.contains(emailFrag)) {
+                        matchedRow = emailMap.get(emailKey).get(0);
+                        break;
+                    }
+                }
+            }
+
+            // Create merged output row
+            Row outputRow = output.createRow(outputRowNum++);
+            int colNum = 0;
+
+            if (matchedRow != null) {
+                for (Cell cell : matchedRow) {
+                    outputRow.createCell(colNum++).setCellValue(getCellValue(cell));
+                }
+            } else {
+                for (int i = 0; i < sheet1Cols; i++) {
+                    outputRow.createCell(colNum++).setCellValue("NULL");
+                }
+            }
+
+            for (Cell cell : row2) {
+                outputRow.createCell(colNum++).setCellValue(getCellValue(cell));
+            }
+        }
+
+        FileOutputStream fos = new FileOutputStream(outputFile);
+        outputWb.write(fos);
+        fos.close();
+
+        sheet1Wb.close();
+        sheet2Wb.close();
+        outputWb.close();
+
+        System.out.println("Merged output saved as: " + outputFile);
+    }
+
+    private static String getCellValue(Cell cell) {
+        return cell == null ? "" : cell.toString();
+    }
+}
