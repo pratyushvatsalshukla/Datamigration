@@ -194,3 +194,77 @@ public class SheetMerger {
 }
 
 
+
+
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+
+public class FinalSheetMerger {
+    public static void main(String[] args) throws IOException {
+        String sheet1Path = "Sheet1.xlsx";
+        String sheet2Path = "Sheet2.xlsx";
+        String outputPath = "MergedOutput.xlsx";
+
+        Workbook wb1 = new XSSFWorkbook(new FileInputStream(sheet1Path));
+        Workbook wb2 = new XSSFWorkbook(new FileInputStream(sheet2Path));
+        Workbook outputWb = new XSSFWorkbook();
+
+        Sheet sheet1 = wb1.getSheetAt(0);
+        Sheet sheet2 = wb2.getSheetAt(0);
+        Sheet outputSheet = outputWb.createSheet("Merged");
+
+        int sheet1Cols = sheet1.getRow(0).getLastCellNum(); // Count of columns in Sheet1
+        int outputRowNum = 0;
+
+        for (Row row2 : sheet2) {
+            String id2 = getCell(row2.getCell(0)).toLowerCase().trim();  // Sheet2 Column A
+            String emailFrag2 = getCell(row2.getCell(4)).toLowerCase().trim();  // Sheet2 Column E
+
+            Row matchedRow1 = null;
+
+            for (Row row1 : sheet1) {
+                String colB = getCell(row1.getCell(1)).toLowerCase(); // Sheet1 Column B
+                String colC = getCell(row1.getCell(2)).toLowerCase(); // Sheet1 Column C
+
+                if (id2.equals(colB) || colC.contains(id2) || colC.contains(emailFrag2)) {
+                    matchedRow1 = row1;
+                    break;
+                }
+            }
+
+            Row outputRow = outputSheet.createRow(outputRowNum++);
+            int colNum = 0;
+
+            if (matchedRow1 != null) {
+                for (Cell cell : matchedRow1) {
+                    outputRow.createCell(colNum++).setCellValue(getCell(cell));
+                }
+            } else {
+                for (int i = 0; i < sheet1Cols; i++) {
+                    outputRow.createCell(colNum++).setCellValue("NULL");
+                }
+            }
+
+            for (Cell cell : row2) {
+                outputRow.createCell(colNum++).setCellValue(getCell(cell));
+            }
+        }
+
+        FileOutputStream fos = new FileOutputStream(outputPath);
+        outputWb.write(fos);
+        fos.close();
+
+        wb1.close();
+        wb2.close();
+        outputWb.close();
+
+        System.out.println("Merged file saved as: " + outputPath);
+    }
+
+    private static String getCell(Cell cell) {
+        return (cell == null) ? "" : cell.toString();
+    }
+}
